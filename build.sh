@@ -36,6 +36,8 @@ link_os_gfx="-lX11 -lXext -lwayland-client -lwayland-egl -lwayland-cursor -lxkbc
 link_render="-lGL -lEGL"
 link_font_provider="-lfreetype"
 
+pkgconfig_opts=$(pkg-config --cflags --libs gio-2.0 glib-2.0)
+
 # --- Choose Compile/Link Lines -----------------------------------------------
 if [ -v gcc ];     then compile_debug="$gcc_debug"; fi
 if [ -v gcc ];     then compile_release="$gcc_release"; fi
@@ -64,7 +66,7 @@ fi
 
 # --- Build Everything (@build_targets) ---------------------------------------
 cd build
-if [ -v raddbg ];                then didbuild=1 && $compile ../src/raddbg/raddbg_main.c                                    $compile_link $link_os_gfx $link_render $link_font_provider $out raddbg; fi
+if [ -v raddbg ];                then didbuild=1 && $compile ../src/raddbg/raddbg_main.c                                    $compile_link $link_os_gfx $link_render $link_font_provider $pkgconfig_opts $out raddbg; fi
 if [ -v radbin ];                then didbuild=1 && $compile ../src/radbin/radbin_main.c                                    $compile_link $out radbin; fi
 if [ -v radlink ];               then didbuild=1 && $compile ../src/linker/lnk.c                                            $compile_link $out radlink; fi
 cd ..

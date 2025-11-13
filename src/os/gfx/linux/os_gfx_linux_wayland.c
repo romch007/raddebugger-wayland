@@ -6,6 +6,7 @@
 #include "viewporter-protocol.h"
 #include <linux/input-event-codes.h>
 #include <xkbcommon/xkbcommon.h>
+#include <gio/gio.h>
 
 ////////////////////////////////
 //~ rjf: Helpers
@@ -1010,7 +1011,31 @@ os_graphical_pick_file(Arena *arena, String8 initial_path)
 internal void
 os_show_in_filesystem_ui(String8 path)
 {
-  // TODO(rjf)
+  GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
+
+  char uri[4096] = {0};
+  snprintf(uri, sizeof(uri) - 1, "%s%s", "file://", path.str);
+
+  GVariantBuilder uris_builder = G_VARIANT_BUILDER_INIT(G_VARIANT_TYPE_STRING_ARRAY);
+
+  g_variant_builder_add(&uris_builder, "s", uri);
+
+  GVariant *params = g_variant_new("(ass)", &uris_builder, "");
+
+  g_dbus_connection_call(
+      bus,
+      "org.freedesktop.FileManager1",
+      "/org/freedesktop/FileManager1",
+      "org.freedesktop.FileManager1",
+      "ShowItems",
+      params,
+      NULL,
+      G_DBUS_CALL_FLAGS_NONE,
+      -1,
+      NULL,
+      NULL,
+      NULL
+  );
 }
 
 internal void
