@@ -134,7 +134,8 @@ r_ogl_os_window_equip(OS_Handle window)
         };
         for(U32 idx = 0; idx < configs_count; idx += 1)
         {
-          w->surface = eglCreateWindowSurface(r_ogl_lnx_state->display, configs[idx], window_os->window, config_options);
+          w->surface = eglCreateWindowSurface(r_ogl_lnx_state->display, configs[idx],
+              (EGLNativeWindowType)window_os->egl_window, config_options);
           if(w->surface != EGL_NO_SURFACE)
           {
             r_ogl_lnx_state->config = configs[idx];
@@ -150,7 +151,8 @@ r_ogl_os_window_equip(OS_Handle window)
     }
     else
     {
-      w->surface = eglCreateWindowSurface(r_ogl_lnx_state->display, r_ogl_lnx_state->config, window_os->window, surface_options);
+      w->surface = eglCreateWindowSurface(r_ogl_lnx_state->display, r_ogl_lnx_state->config,
+          (EGLNativeWindowType)window_os->egl_window, surface_options);
     }
     if(w->surface == EGL_NO_SURFACE)
     {

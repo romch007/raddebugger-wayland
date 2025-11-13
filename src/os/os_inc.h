@@ -31,7 +31,7 @@
 # elif OS_WINDOWS
 #  include "os/gfx/win32/os_gfx_win32.h"
 # elif OS_LINUX
-#  include "os/gfx/linux/os_gfx_linux.h"
+#  include "os/gfx/linux/os_gfx_linux_wayland.h"
 # else
 #  error OS graphical layer not implemented for this operating system.
 # endif

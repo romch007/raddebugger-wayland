@@ -20,7 +20,10 @@
 # elif OS_WINDOWS
 #  include "os/gfx/win32/os_gfx_win32.c"
 # elif OS_LINUX
-#  include "os/gfx/linux/os_gfx_linux.c"
+#  include "os/gfx/linux/xdg-shell-client-protocol.c"
+#  include "os/gfx/linux/fractional-scale-v1-client-protocol.c"
+#  include "os/gfx/linux/viewporter-protocol.c"
+#  include "os/gfx/linux/os_gfx_linux_wayland.c"
 # else
 #  error OS graphical layer not implemented for this operating system.
 # endif
