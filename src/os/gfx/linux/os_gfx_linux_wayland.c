@@ -163,6 +163,8 @@ pointer_handle_button(void *data, struct wl_pointer *wl_pointer,
       if (!is_over_title_bar_client_area)
         xdg_toplevel_move(w->xdg_toplevel, os_lnx_gfx_state->seat, serial);
     }
+  } else if (button == BTN_RIGHT && state == WL_POINTER_BUTTON_STATE_PRESSED && w->mouse_y < w->title_bar_thickness) {
+    xdg_toplevel_show_window_menu(w->xdg_toplevel, os_lnx_gfx_state->seat, serial, w->mouse_x / w->scale, w->mouse_y / w->scale);
   }
 
   OS_Key key = OS_Key_Null;
