@@ -16,6 +16,13 @@
 ////////////////////////////////
 //~ rjf: Window State
 
+typedef struct OS_LNX_TitleBarClientArea OS_LNX_TitleBarClientArea;
+struct OS_LNX_TitleBarClientArea
+{
+  OS_LNX_TitleBarClientArea *next;
+  Rng2F32 rect;
+};
+
 typedef struct OS_LNX_Window OS_LNX_Window;
 struct OS_LNX_Window
 {
@@ -35,8 +42,14 @@ struct OS_LNX_Window
   double mouse_x;
   double mouse_y;
 
-  int is_maximized;
-  int is_fullscreen;
+  B32 is_maximized;
+  B32 is_fullscreen;
+
+  Arena *title_bar_arena;
+  F32 title_bar_thickness;
+  F32 edge_thickness;
+  OS_LNX_TitleBarClientArea *first_title_bar_client_area;
+  OS_LNX_TitleBarClientArea *last_title_bar_client_area;
 };
 
 ////////////////////////////////
@@ -64,6 +77,7 @@ struct OS_LNX_GfxState
   struct wp_fractional_scale_manager_v1 *fractional_scale_manager;
   struct wp_viewporter *viewporter;
   OS_LNX_Window *pointer_focus;
+  B32 force_border_cursor;
 
   OS_LNX_Window *first_window;
   OS_LNX_Window *last_window;

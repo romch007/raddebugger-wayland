@@ -43,6 +43,54 @@ pointer_handle_leave(void *data, struct wl_pointer *wl_pointer,
   os_lnx_gfx_state->pointer_focus = NULL;
 }
 
+internal enum xdg_toplevel_resize_edge get_resize_edge(OS_LNX_Window *w) {
+  int x = w->mouse_x;
+  int y = w->mouse_y;
+  int width = w->width * w->scale;
+  int height = w->height * w->scale;
+  int margin = w->edge_thickness * w->scale;
+
+  B32 top = y < margin;
+  B32 bottom = y > (height - margin);
+  B32 left = x < margin;
+  B32 right = x > (width - margin);
+
+  if (top)
+    if (left)
+      return XDG_TOPLEVEL_RESIZE_EDGE_TOP_LEFT;
+    else if (right)
+      return XDG_TOPLEVEL_RESIZE_EDGE_TOP_RIGHT;
+    else
+      return XDG_TOPLEVEL_RESIZE_EDGE_TOP;
+  else if (bottom)
+    if (left)
+      return XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_LEFT;
+    else if (right)
+      return XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_RIGHT;
+    else
+      return XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM;
+  else if (left)
+    return XDG_TOPLEVEL_RESIZE_EDGE_LEFT;
+  else if (right)
+    return XDG_TOPLEVEL_RESIZE_EDGE_RIGHT;
+  else
+    return XDG_TOPLEVEL_RESIZE_EDGE_NONE;
+}
+
+internal void set_cursor(struct wl_cursor *wl_cursor) {
+  struct wl_cursor_image *image = wl_cursor->images[0];
+  struct wl_buffer *buffer = wl_cursor_image_get_buffer(image);
+
+  wl_pointer_set_cursor(os_lnx_gfx_state->pointer,
+                        os_lnx_gfx_state->pointer_serial,
+                        os_lnx_gfx_state->cursor_surface,
+                        image->hotspot_x,
+                        image->hotspot_y);
+  wl_surface_attach(os_lnx_gfx_state->cursor_surface, buffer, 0, 0);
+  wl_surface_damage_buffer(os_lnx_gfx_state->cursor_surface, 0, 0,
+                           image->width, image->height);
+  wl_surface_commit(os_lnx_gfx_state->cursor_surface);
+}
 
 internal void
 pointer_handle_motion(void *data, struct wl_pointer *wl_pointer,
@@ -61,12 +109,61 @@ pointer_handle_motion(void *data, struct wl_pointer *wl_pointer,
   OS_Event *event = os_lnx_push_event(OS_EventKind_MouseMove, window);
   event->pos.x = mouse_x * window->scale;
   event->pos.y = mouse_y * window->scale;
+
+  enum xdg_toplevel_resize_edge resize_edge = get_resize_edge(window);
+  if (resize_edge != XDG_TOPLEVEL_RESIZE_EDGE_NONE && !window->is_maximized && !window->is_fullscreen) {
+    const char* cursor_name = "left_ptr";
+
+    switch (resize_edge) {
+    case XDG_TOPLEVEL_RESIZE_EDGE_TOP:          cursor_name = "top_side"; break;
+    case XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM:       cursor_name = "bottom_side"; break;
+    case XDG_TOPLEVEL_RESIZE_EDGE_LEFT:         cursor_name = "left_side"; break;
+    case XDG_TOPLEVEL_RESIZE_EDGE_TOP_LEFT:     cursor_name = "top_left_corner"; break;
+    case XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_LEFT:  cursor_name = "bottom_left_corner"; break;
+    case XDG_TOPLEVEL_RESIZE_EDGE_RIGHT:        cursor_name = "right_side"; break;
+    case XDG_TOPLEVEL_RESIZE_EDGE_TOP_RIGHT:    cursor_name = "top_right_corner"; break;
+    case XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_RIGHT: cursor_name = "bottom_right_corner"; break;
+    default: break;
+    }
+
+    struct wl_cursor *cursor = wl_cursor_theme_get_cursor(os_lnx_gfx_state->cursor_theme, cursor_name);
+    set_cursor(cursor);
+
+    os_lnx_gfx_state->force_border_cursor = 1;
+  } else {
+    os_lnx_gfx_state->force_border_cursor = 0;
+  }
 }
+
 
 internal void
 pointer_handle_button(void *data, struct wl_pointer *wl_pointer,
                       uint32_t serial, uint32_t time, uint32_t button, uint32_t state) {
   OS_LNX_Window *w = os_lnx_gfx_state->pointer_focus;
+
+  if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
+    enum xdg_toplevel_resize_edge resize_edge = get_resize_edge(w);
+
+    if (resize_edge != XDG_TOPLEVEL_RESIZE_EDGE_NONE) {
+      xdg_toplevel_resize(w->xdg_toplevel, os_lnx_gfx_state->seat, serial, resize_edge);
+    } else if (w->mouse_y < w->title_bar_thickness) {
+      B32 is_over_title_bar_client_area = 0;
+
+      // skip client area (buttons and stuff in the title bar)
+      for (OS_LNX_TitleBarClientArea *area = w->first_title_bar_client_area; area != NULL; area = area->next) {
+        Rng2F32 rect = area->rect;
+        if(rect.x0 <= w->mouse_x && w->mouse_x < rect.x1 &&
+            rect.y0 <= w->mouse_y && w->mouse_y < rect.y1)
+        {
+          is_over_title_bar_client_area = 1;
+          break;
+        }
+      }
+
+      if (!is_over_title_bar_client_area)
+        xdg_toplevel_move(w->xdg_toplevel, os_lnx_gfx_state->seat, serial);
+    }
+  }
 
   OS_Key key = OS_Key_Null;
   if(button == BTN_LEFT || button == 0x110)  key = OS_Key_LeftMouseButton; // BTN_LEFT constant if included
@@ -98,11 +195,11 @@ pointer_handle_axis(void *data, struct wl_pointer *wl_pointer,
 
 internal void pointer_handle_frame(void *data, struct wl_pointer *pointer) {}
 
-internal void pointer_handle_axis_source(void *data, struct wl_pointer *pointer, uint32_t) {}
+internal void pointer_handle_axis_source(void *data, struct wl_pointer *pointer, uint32_t axis_source) {}
 
-internal void pointer_handle_axis_stop(void *data, struct wl_pointer *pointer, uint32_t, uint32_t) {}
+internal void pointer_handle_axis_stop(void *data, struct wl_pointer *pointer, uint32_t time, uint32_t axis_source) {}
 
-internal void pointer_handle_axis_discrete(void *data, struct wl_pointer *pointer, uint32_t, int32_t) {}
+internal void pointer_handle_axis_discrete(void *data, struct wl_pointer *pointer, uint32_t axis, int32_t discrete) {}
 
 internal void pointer_handle_axis_value120(void *data,
  struct wl_pointer *wl_pointer,
@@ -493,6 +590,8 @@ os_window_open(Rng2F32 rect, OS_WindowFlags flags, String8 title)
   MemoryZeroStruct(w);
   DLLPushBack(os_lnx_gfx_state->first_window, os_lnx_gfx_state->last_window, w);
 
+  w->title_bar_arena = arena_alloc();
+
   w->width = 1280;
   w->height = 720;
   w->scale = 1.0f;
@@ -662,28 +761,41 @@ internal void
 os_window_clear_custom_border_data(OS_Handle handle)
 {
   if(os_handle_match(handle, os_handle_zero())) {return;}
-  // TODO(rjf)
+  OS_LNX_Window *w = (OS_LNX_Window*)handle.u64[0];
+  arena_clear(w->title_bar_arena);
+  w->first_title_bar_client_area = NULL;
+  w->last_title_bar_client_area = NULL;
+  w->title_bar_thickness = 0;
+  w->edge_thickness = 0;
 }
 
 internal void
 os_window_push_custom_title_bar(OS_Handle handle, F32 thickness)
 {
   if(os_handle_match(handle, os_handle_zero())) {return;}
-  // TODO(rjf)
+  OS_LNX_Window *w = (OS_LNX_Window*)handle.u64[0];
+  w->title_bar_thickness = thickness;
 }
 
 internal void
 os_window_push_custom_edges(OS_Handle handle, F32 thickness)
 {
   if(os_handle_match(handle, os_handle_zero())) {return;}
-  // TODO(rjf)
+  OS_LNX_Window *w = (OS_LNX_Window*)handle.u64[0];
+  w->edge_thickness = thickness;
 }
 
 internal void
 os_window_push_custom_title_bar_client_area(OS_Handle handle, Rng2F32 rect)
 {
   if(os_handle_match(handle, os_handle_zero())) {return;}
-  // TODO(rjf)
+  OS_LNX_Window *window = (OS_LNX_Window*)handle.u64[0];
+
+  OS_LNX_TitleBarClientArea *area = push_array(window->title_bar_arena, OS_LNX_TitleBarClientArea, 1);
+  if (area) {
+    area->rect = rect;
+    SLLQueuePush(window->first_title_bar_client_area, window->last_title_bar_client_area, area);
+  }
 }
 
 internal Rng2F32
@@ -839,7 +951,7 @@ os_mouse_from_window(OS_Handle handle)
 //~ rjf: @os_hooks Cursors (Implemented Per-OS)
 
 internal struct wl_cursor *get_cursor_for_type(OS_Cursor type) {
-  char *name = "left_ptr";
+  const char *name = "left_ptr";
 
   switch (type)
   {
@@ -861,22 +973,13 @@ internal struct wl_cursor *get_cursor_for_type(OS_Cursor type) {
 internal void
 os_set_cursor(OS_Cursor cursor)
 {
+  if (os_lnx_gfx_state->force_border_cursor)
+    return;
+
   os_lnx_gfx_state->last_set_cursor = cursor;
 
   struct wl_cursor *wl_cursor = get_cursor_for_type(cursor);
-  struct wl_cursor_image *image = wl_cursor->images[0];
-  struct wl_buffer *buffer = wl_cursor_image_get_buffer(image);
-
-  wl_surface_attach(os_lnx_gfx_state->cursor_surface, buffer, 0, 0);
-  wl_surface_damage_buffer(os_lnx_gfx_state->cursor_surface, 0, 0,
-                           image->width, image->height);
-  wl_surface_commit(os_lnx_gfx_state->cursor_surface);
-
-  wl_pointer_set_cursor(os_lnx_gfx_state->pointer,
-                        os_lnx_gfx_state->pointer_serial,
-                        os_lnx_gfx_state->cursor_surface,
-                        image->hotspot_x,
-                        image->hotspot_y);
+  set_cursor(wl_cursor);
 }
 
 ////////////////////////////////
