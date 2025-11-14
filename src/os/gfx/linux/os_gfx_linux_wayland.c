@@ -150,7 +150,7 @@ pointer_handle_button(void *data, struct wl_pointer *wl_pointer,
   uint32_t delta_time = time - w->last_click_time;
 
   if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
-    if (delta_time < 200 && w->last_click_x == w->mouse_x && w->last_click_y == w->mouse_y) {
+    if (delta_time < 200 && w->mouse_y < w->title_bar_thickness && w->last_click_x == w->mouse_x && w->last_click_y == w->mouse_y) {
       if (w->is_maximized)
         xdg_toplevel_unset_maximized(w->xdg_toplevel);
       else
