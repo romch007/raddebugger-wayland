@@ -142,30 +142,46 @@ pointer_handle_button(void *data, struct wl_pointer *wl_pointer,
                       uint32_t serial, uint32_t time, uint32_t button, uint32_t state) {
   OS_LNX_Window *w = os_lnx_gfx_state->pointer_focus;
 
+  uint32_t delta_time = time - w->last_click_time;
+
   if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
-    enum xdg_toplevel_resize_edge resize_edge = get_resize_edge(w);
+    if (delta_time < 200 && w->last_click_x == w->mouse_x && w->last_click_y == w->mouse_y) {
+      if (w->is_maximized)
+        xdg_toplevel_unset_maximized(w->xdg_toplevel);
+      else
+        xdg_toplevel_set_maximized(w->xdg_toplevel);
+    } else {
+      enum xdg_toplevel_resize_edge resize_edge = get_resize_edge(w);
 
-    if (resize_edge != XDG_TOPLEVEL_RESIZE_EDGE_NONE) {
-      xdg_toplevel_resize(w->xdg_toplevel, os_lnx_gfx_state->seat, serial, resize_edge);
-    } else if (w->mouse_y < w->title_bar_thickness) {
-      B32 is_over_title_bar_client_area = 0;
+      if (resize_edge != XDG_TOPLEVEL_RESIZE_EDGE_NONE) {
+        xdg_toplevel_resize(w->xdg_toplevel, os_lnx_gfx_state->seat, serial,
+                            resize_edge);
+      } else if (w->mouse_y < w->title_bar_thickness) {
+        B32 is_over_title_bar_client_area = 0;
 
-      // skip client area (buttons and stuff in the title bar)
-      for (OS_LNX_TitleBarClientArea *area = w->first_title_bar_client_area; area != NULL; area = area->next) {
-        Rng2F32 rect = area->rect;
-        if(rect.x0 <= w->mouse_x && w->mouse_x < rect.x1 &&
-            rect.y0 <= w->mouse_y && w->mouse_y < rect.y1)
-        {
-          is_over_title_bar_client_area = 1;
-          break;
+        // skip client area (buttons and stuff in the title bar)
+        for (OS_LNX_TitleBarClientArea *area = w->first_title_bar_client_area;
+             area != NULL; area = area->next) {
+          Rng2F32 rect = area->rect;
+          if (rect.x0 <= w->mouse_x && w->mouse_x < rect.x1 &&
+              rect.y0 <= w->mouse_y && w->mouse_y < rect.y1) {
+            is_over_title_bar_client_area = 1;
+            break;
+          }
         }
-      }
 
-      if (!is_over_title_bar_client_area)
-        xdg_toplevel_move(w->xdg_toplevel, os_lnx_gfx_state->seat, serial);
+        if (!is_over_title_bar_client_area)
+          xdg_toplevel_move(w->xdg_toplevel, os_lnx_gfx_state->seat, serial);
+      }
     }
   } else if (button == BTN_RIGHT && state == WL_POINTER_BUTTON_STATE_PRESSED && w->mouse_y < w->title_bar_thickness) {
     xdg_toplevel_show_window_menu(w->xdg_toplevel, os_lnx_gfx_state->seat, serial, w->mouse_x / w->scale, w->mouse_y / w->scale);
+  }
+
+  if (button == BTN_LEFT) {
+    w->last_click_time = time;
+    w->last_click_x = w->mouse_x;
+    w->last_click_y = w->mouse_y;
   }
 
   OS_Key key = OS_Key_Null;

@@ -42,6 +42,10 @@ struct OS_LNX_Window
   double mouse_x;
   double mouse_y;
 
+  uint32_t last_click_time;
+  double last_click_x;
+  double last_click_y;
+
   B32 is_maximized;
   B32 is_fullscreen;
 
