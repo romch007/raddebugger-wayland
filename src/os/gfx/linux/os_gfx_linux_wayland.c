@@ -1041,5 +1041,10 @@ os_show_in_filesystem_ui(String8 path)
 internal void
 os_open_in_browser(String8 url)
 {
-  // TODO(rjf)
+  GError *error = NULL;
+
+  g_app_info_launch_default_for_uri((const char*)url.str, NULL, &error);
+
+  if (error)
+    g_error_free(error);
 }
