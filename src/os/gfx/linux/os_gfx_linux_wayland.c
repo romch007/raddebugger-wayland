@@ -15,7 +15,7 @@
 ////////////////////////////////
 //~ rjf: @os_hooks Main Initialization API (Implemented Per-OS)
 
-
+internal const int cursor_theme_size = 24;
 
 internal OS_Event *
 os_lnx_push_event(OS_EventKind kind, OS_LNX_Window *window)
@@ -33,7 +33,7 @@ pointer_handle_enter(void *data, struct wl_pointer *pointer,
                      wl_fixed_t sx, wl_fixed_t sy)
 {
   OS_LNX_Window *window = wl_surface_get_user_data(surface);
-  os_lnx_gfx_state->pointer_focus = window;
+  os_lnx_gfx_state->focused_window = window;
   os_lnx_gfx_state->pointer_serial = serial;
 }
 
@@ -41,7 +41,7 @@ internal void
 pointer_handle_leave(void *data, struct wl_pointer *wl_pointer,
                      uint32_t serial, struct wl_surface *surface)
 {
-  os_lnx_gfx_state->pointer_focus = NULL;
+  os_lnx_gfx_state->focused_window = NULL;
 }
 
 internal enum xdg_toplevel_resize_edge get_resize_edge(OS_LNX_Window *w) {
@@ -79,14 +79,19 @@ internal enum xdg_toplevel_resize_edge get_resize_edge(OS_LNX_Window *w) {
 }
 
 internal void set_cursor(struct wl_cursor *wl_cursor) {
+  OS_LNX_Window *window = os_lnx_gfx_state->focused_window;
+
+  if (!window)
+    return;
+
   struct wl_cursor_image *image = wl_cursor->images[0];
   struct wl_buffer *buffer = wl_cursor_image_get_buffer(image);
 
   wl_pointer_set_cursor(os_lnx_gfx_state->pointer,
                         os_lnx_gfx_state->pointer_serial,
                         os_lnx_gfx_state->cursor_surface,
-                        image->hotspot_x,
-                        image->hotspot_y);
+                        image->hotspot_x / window->scale,
+                        image->hotspot_y / window->scale);
   wl_surface_attach(os_lnx_gfx_state->cursor_surface, buffer, 0, 0);
   wl_surface_damage_buffer(os_lnx_gfx_state->cursor_surface, 0, 0,
                            image->width, image->height);
@@ -96,7 +101,7 @@ internal void set_cursor(struct wl_cursor *wl_cursor) {
 internal void
 pointer_handle_motion(void *data, struct wl_pointer *wl_pointer,
                       uint32_t time, wl_fixed_t sx, wl_fixed_t sy) {
-  OS_LNX_Window *window = os_lnx_gfx_state->pointer_focus;
+  OS_LNX_Window *window = os_lnx_gfx_state->focused_window;
 
   if (!window)
     return;
@@ -140,7 +145,7 @@ pointer_handle_motion(void *data, struct wl_pointer *wl_pointer,
 internal void
 pointer_handle_button(void *data, struct wl_pointer *wl_pointer,
                       uint32_t serial, uint32_t time, uint32_t button, uint32_t state) {
-  OS_LNX_Window *w = os_lnx_gfx_state->pointer_focus;
+  OS_LNX_Window *w = os_lnx_gfx_state->focused_window;
 
   uint32_t delta_time = time - w->last_click_time;
 
@@ -200,7 +205,7 @@ pointer_handle_button(void *data, struct wl_pointer *wl_pointer,
 internal void
 pointer_handle_axis(void *data, struct wl_pointer *wl_pointer,
                     uint32_t time, uint32_t axis, wl_fixed_t value) {
-  OS_LNX_Window *w = os_lnx_gfx_state->pointer_focus;
+  OS_LNX_Window *w = os_lnx_gfx_state->focused_window;
   OS_Event *event = os_lnx_push_event(OS_EventKind_Scroll, w);
   event->window.u64[0] = (U64)w;
 
@@ -277,7 +282,7 @@ internal void keyboard_handle_key(void *data, struct wl_keyboard *keyboard,
 {
 
   OS_EventKind event_kind = state == WL_KEYBOARD_KEY_STATE_PRESSED ? OS_EventKind_Press : OS_EventKind_Release;
-  OS_Event *event = os_lnx_push_event(event_kind, os_lnx_gfx_state->pointer_focus);
+  OS_Event *event = os_lnx_push_event(event_kind, os_lnx_gfx_state->focused_window);
   OS_Key os_key = OS_Key_Null;
 
   switch(key) {
@@ -356,7 +361,7 @@ internal void keyboard_handle_key(void *data, struct wl_keyboard *keyboard,
     for (int i = 0; i < n; ) {
       UnicodeDecode decode = utf8_decode((U8*)buf + i, n - i);
       if (decode.codepoint != 0 && (decode.codepoint >= 32 || decode.codepoint == '\t')) {
-        OS_Event *text_event = os_lnx_push_event(OS_EventKind_Text, os_lnx_gfx_state->pointer_focus);
+        OS_Event *text_event = os_lnx_push_event(OS_EventKind_Text, os_lnx_gfx_state->focused_window);
         text_event->character = decode.codepoint;
       }
 
@@ -434,7 +439,22 @@ internal const struct wl_seat_listener seat_listener = {
 internal void fractional_preferred_scale(void *data, struct wp_fractional_scale_v1 *scale, uint32_t newscale) {
   OS_LNX_Window *w = (OS_LNX_Window *)data;
 
-  w->scale = (float)newscale / 120.0f;
+  float s = (float)newscale / 120.0f;
+
+  if (w->scale != s) {
+    if (os_lnx_gfx_state->cursor_theme)
+      wl_cursor_theme_destroy(os_lnx_gfx_state->cursor_theme);
+
+    os_lnx_gfx_state->cursor_theme = wl_cursor_theme_load("default", cursor_theme_size * s, os_lnx_gfx_state->shm);
+
+    struct wl_cursor* cursor = wl_cursor_theme_get_cursor(os_lnx_gfx_state->cursor_theme, "left_ptr");
+
+    wp_viewport_set_destination(os_lnx_gfx_state->cursor_viewport, cursor_theme_size, cursor_theme_size);
+
+    set_cursor(cursor);
+  }
+
+  w->scale = s;
 }
 
 internal const struct wp_fractional_scale_v1_listener fractional_scale_listener = {
@@ -555,6 +575,7 @@ os_gfx_init(void)
   xdg_wm_base_add_listener(os_lnx_gfx_state->wm_base, &wm_base_listener, NULL);
 
   os_lnx_gfx_state->cursor_surface = wl_compositor_create_surface(os_lnx_gfx_state->compositor);
+  os_lnx_gfx_state->cursor_viewport = wp_viewporter_get_viewport(os_lnx_gfx_state->viewporter, os_lnx_gfx_state->cursor_surface);
   os_lnx_gfx_state->cursor_theme = wl_cursor_theme_load(NULL, 24, os_lnx_gfx_state->shm);
 
   //- rjf: fill out gfx info

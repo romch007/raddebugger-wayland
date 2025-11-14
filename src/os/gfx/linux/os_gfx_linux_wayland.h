@@ -73,6 +73,7 @@ struct OS_LNX_GfxState
   uint32_t pointer_serial;
   struct wl_surface *cursor_surface;
   struct wl_cursor_theme *cursor_theme;
+  struct wp_viewport *cursor_viewport;
   struct wl_keyboard *keyboard;
   struct xkb_context *xkb_ctx;
   struct xkb_keymap *xkb_keymap;
@@ -80,7 +81,7 @@ struct OS_LNX_GfxState
   struct wl_shm *shm;
   struct wp_fractional_scale_manager_v1 *fractional_scale_manager;
   struct wp_viewporter *viewporter;
-  OS_LNX_Window *pointer_focus;
+  OS_LNX_Window *focused_window;
   B32 force_border_cursor;
 
   OS_LNX_Window *first_window;
