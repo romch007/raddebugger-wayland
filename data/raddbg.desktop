@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=RAD Debugger
+Comment=A native, user-mode, multi-process, graphical debugger
+Icon=raddbg
+Exec=raddbg
+Categories=Development
