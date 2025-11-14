@@ -999,10 +999,167 @@ os_graphical_message(B32 error, String8 title, String8 message)
   fprintf(stderr, "%.*s\n\n", str8_varg(message));
 }
 
+struct file_chooser_data {
+  GMainLoop *loop;
+  char *selected_file;
+};
+
+internal void
+on_file_chooser_response(GDBusConnection *connection,
+            const gchar *sender_name,
+            const gchar *object_path,
+            const gchar *interface_name,
+            const gchar *signal_name,
+            GVariant *parameters,
+            gpointer user_data) {
+  struct file_chooser_data *data = user_data;
+  guint32 response;
+  GVariant *results;
+
+  g_variant_get(parameters, "(u@a{sv})", &response, &results);
+
+  if (response == 0) {
+    GVariant *uris_variant = g_variant_lookup_value(results, "uris", G_VARIANT_TYPE_STRING_ARRAY);
+    if (uris_variant) {
+      gsize n_uris;
+      const gchar **uris = g_variant_get_strv(uris_variant, &n_uris);
+
+      if (n_uris > 0) {
+        GFile *file = g_file_new_for_uri(uris[0]);
+        char *path = g_file_get_path(file);
+        data->selected_file = g_strdup(path);
+        g_free(path);
+        g_object_unref(file);
+      }
+
+      g_free(uris);
+      g_variant_unref(uris_variant);
+    }
+  }
+
+  g_variant_unref(results);
+
+  if (g_main_loop_is_running(data->loop))
+    g_main_loop_quit(data->loop);
+}
+
+struct glib_wayland_source {
+  GSource source;
+  GPollFD pollfd;
+  struct wl_display *display;
+};
+
+internal gboolean wayland_source_prepare(GSource *source, gint *timeout_) {
+  *timeout_ = -1;
+  return FALSE;
+}
+
+internal gboolean wayland_source_check(GSource *source) {
+  struct glib_wayland_source *ws = (struct glib_wayland_source *)source;
+  return ws->pollfd.revents != 0;
+}
+
+internal gboolean wayland_source_dispatch(GSource *source, GSourceFunc callback, gpointer user_data) {
+  struct glib_wayland_source *ws = (struct glib_wayland_source *)source;
+
+  wl_display_dispatch(ws->display);
+  wl_display_flush(ws->display);
+
+  return TRUE;
+}
+
+internal GSourceFuncs wayland_source_funcs = {
+    .prepare = wayland_source_prepare,
+    .check = wayland_source_check,
+    .dispatch = wayland_source_dispatch,
+};
+
 internal String8
 os_graphical_pick_file(Arena *arena, String8 initial_path)
 {
-  return str8_zero();
+  GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
+  struct file_chooser_data data = {0};
+
+  gchar *token = g_strdup_printf("filechooser%u", g_random_int());
+  gchar *handle = g_strdup_printf("/org/freedesktop/portal/desktop/request/%s/%s",
+                                  g_dbus_connection_get_unique_name(bus) + 1,
+                                  token);
+
+ for (gchar *p = handle; *p; p++)
+    if (*p == '.') *p = '_';
+
+  data.loop = g_main_loop_new(NULL, FALSE);
+
+  // Dirty hack to keep responding to wayland events while the glib event loop is blocking the function.
+  // This avoids "The app is not responding" popup when the file chooser is open
+
+  struct glib_wayland_source *ws = (struct glib_wayland_source*)g_source_new(&wayland_source_funcs, sizeof(struct glib_wayland_source));
+  ws->display = os_lnx_gfx_state->display;
+  ws->pollfd.fd = wl_display_get_fd(os_lnx_gfx_state->display);
+  ws->pollfd.events = G_IO_IN;
+
+  g_source_add_poll((GSource*)ws, &ws->pollfd);
+  g_source_attach((GSource*)ws, NULL);
+
+  guint subscription_id = g_dbus_connection_signal_subscribe(
+      bus,
+      "org.freedesktop.portal.Desktop",
+      "org.freedesktop.portal.Request",
+      "Response",
+      handle,
+      NULL,
+      G_DBUS_SIGNAL_FLAGS_NONE,
+      on_file_chooser_response,
+      &data,
+      NULL
+  );
+
+  GVariantBuilder options_builder = G_VARIANT_BUILDER_INIT(G_VARIANT_TYPE_VARDICT);
+  g_variant_builder_add(&options_builder, "{sv}", "handle_token", g_variant_new_string(token));
+  g_variant_builder_add(&options_builder, "{sv}", "multiple", g_variant_new_boolean(FALSE));
+
+  if (initial_path.size > 0)
+    g_variant_builder_add(&options_builder, "{sv}", "current_folder", g_variant_new_bytestring((const char*)initial_path.str));
+
+  GVariant *params = g_variant_new("(ssa{sv})", "", "Choose a file", &options_builder);
+  GVariant *result = g_dbus_connection_call_sync(
+      bus,
+      "org.freedesktop.portal.Desktop",
+      "/org/freedesktop/portal/desktop",
+      "org.freedesktop.portal.FileChooser",
+      "OpenFile",
+      params,
+      NULL,
+      G_DBUS_CALL_FLAGS_NONE,
+      -1,
+      NULL,
+      NULL
+  );
+
+  g_variant_unref(result);
+
+  g_main_loop_run(data.loop);
+
+  g_dbus_connection_signal_unsubscribe(bus, subscription_id);
+  g_source_destroy((GSource *)ws);
+  g_main_loop_unref(data.loop);
+  g_object_unref(bus);
+  g_free(token);
+  g_free(handle);
+
+  if (!data.selected_file)
+    return str8_zero();
+
+  size_t len = strlen(data.selected_file);
+
+  U8 *buf = push_array(arena, U8, len);
+  memcpy(buf, data.selected_file, len);
+
+  String8 s = {0};
+  s.str = buf;
+  s.size = len;
+
+  return s;
 }
 
 ////////////////////////////////
