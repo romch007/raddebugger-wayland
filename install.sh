@@ -7,7 +7,7 @@ if [ -z "$DESTDIR" ]; then
   exit 1
 fi
 
-install -D build/raddbg $DESTDIR/bin/raddbg
-install -D data/logo.png $DESTDIR/share/icons/hicolor/256x256/apps/raddbg.png
-install -D data/raddbg.desktop $DESTDIR/share/applications/raddbg.desktop
-install -D LICENSE $DESTDIR/share/licenses/raddbg/LICENSE
+install -Dm755 build/raddbg $DESTDIR/bin/raddbg
+install -Dm644 data/logo.png $DESTDIR/share/icons/hicolor/256x256/apps/raddbg.png
+install -Dm644 data/raddbg.desktop $DESTDIR/share/applications/raddbg.desktop
+install -Dm644 LICENSE $DESTDIR/share/licenses/raddbg/LICENSE
