@@ -23,6 +23,7 @@
 #  include "os/gfx/linux/xdg-shell-client-protocol.c"
 #  include "os/gfx/linux/fractional-scale-v1-client-protocol.c"
 #  include "os/gfx/linux/viewporter-protocol.c"
+#  include "os/gfx/linux/xdg-activation-protocol.c"
 #  include "os/gfx/linux/os_gfx_linux_wayland.c"
 # else
 #  error OS graphical layer not implemented for this operating system.

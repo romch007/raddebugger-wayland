@@ -4,6 +4,7 @@
 #include "xdg-shell-client-protocol.h"
 #include "fractional-scale-v1-client-protocol.h"
 #include "viewporter-protocol.h"
+#include "xdg-activation-protocol.h"
 #include <linux/input-event-codes.h>
 #include <xkbcommon/xkbcommon.h>
 #include <gio/gio.h>
@@ -481,6 +482,8 @@ internal void registry_handle_global(void *data, struct wl_registry *registry,
         wl_registry_bind(registry, name, &wp_fractional_scale_manager_v1_interface, 1);
   } else if (strcmp(interface, wp_viewporter_interface.name) == 0) {
     os_lnx_gfx_state->viewporter = wl_registry_bind(registry, name, &wp_viewporter_interface, 1);
+  } else if (strcmp(interface, xdg_activation_v1_interface.name) == 0) {
+    os_lnx_gfx_state->activation = wl_registry_bind(registry, name, &xdg_activation_v1_interface, 1);
   }
 }
 
@@ -584,6 +587,8 @@ os_gfx_init(void)
   os_lnx_gfx_state->gfx_info.default_refresh_rate = 60.f;
 
   os_lnx_gfx_state->portal = xdp_portal_new();
+
+  os_lnx_gfx_state->activation_token = getenv("XDG_ACTIVATION_TOKEN");
 }
 
 ////////////////////////////////
@@ -664,6 +669,13 @@ os_window_open(Rng2F32 rect, OS_WindowFlags flags, String8 title)
   xdg_toplevel_add_listener(w->xdg_toplevel, &toplevel_listener, w);
 
   w->egl_window = wl_egl_window_create(w->surface, w->width, w->height);
+
+  if (os_lnx_gfx_state->activation && os_lnx_gfx_state->activation_token) {
+    xdg_activation_v1_activate(os_lnx_gfx_state->activation,
+                               os_lnx_gfx_state->activation_token, w->surface);
+
+    os_lnx_gfx_state->activation_token = NULL;
+  }
 
   wl_surface_commit(w->surface);
   wl_display_roundtrip(os_lnx_gfx_state->display);

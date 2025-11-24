@@ -83,6 +83,8 @@ struct OS_LNX_GfxState
   struct wp_fractional_scale_manager_v1 *fractional_scale_manager;
   struct wp_viewporter *viewporter;
   XdpPortal *portal;
+  struct xdg_activation_v1 *activation;
+  char *activation_token;
   OS_LNX_Window *focused_window;
   B32 force_border_cursor;
 
