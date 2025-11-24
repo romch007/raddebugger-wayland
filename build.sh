@@ -36,7 +36,7 @@ link_os_gfx="-lX11 -lXext -lwayland-client -lwayland-egl -lwayland-cursor -lxkbc
 link_render="-lGL -lEGL"
 link_font_provider="-lfreetype"
 
-pkgconfig_opts=$(pkg-config --cflags --libs gio-2.0 glib-2.0)
+pkgconfig_opts=$(pkg-config --cflags --libs gio-2.0 glib-2.0 libportal)
 
 # --- Choose Compile/Link Lines -----------------------------------------------
 if [ -v gcc ];     then compile_debug="$gcc_debug"; fi

@@ -11,6 +11,7 @@
 #include <wayland-client.h>
 #include <wayland-egl.h>
 #include <wayland-cursor.h>
+#include <libportal/portal.h>
 #define global static
 
 ////////////////////////////////
@@ -81,6 +82,7 @@ struct OS_LNX_GfxState
   struct wl_shm *shm;
   struct wp_fractional_scale_manager_v1 *fractional_scale_manager;
   struct wp_viewporter *viewporter;
+  XdpPortal *portal;
   OS_LNX_Window *focused_window;
   B32 force_border_cursor;
 

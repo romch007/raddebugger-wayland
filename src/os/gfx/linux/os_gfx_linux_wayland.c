@@ -582,6 +582,8 @@ os_gfx_init(void)
   os_lnx_gfx_state->gfx_info.double_click_time = 0.5f;
   os_lnx_gfx_state->gfx_info.caret_blink_time = 0.5f;
   os_lnx_gfx_state->gfx_info.default_refresh_rate = 60.f;
+
+  os_lnx_gfx_state->portal = xdp_portal_new();
 }
 
 ////////////////////////////////
@@ -1041,37 +1043,27 @@ struct file_chooser_data {
   char *selected_file;
 };
 
-internal void
-on_file_chooser_response(GDBusConnection *connection,
-            const gchar *sender_name,
-            const gchar *object_path,
-            const gchar *interface_name,
-            const gchar *signal_name,
-            GVariant *parameters,
-            gpointer user_data) {
+internal void on_file_chooser_response(GObject *source_object, GAsyncResult *res, gpointer user_data) {
   struct file_chooser_data *data = user_data;
-  guint32 response;
-  GVariant *results;
 
-  g_variant_get(parameters, "(u@a{sv})", &response, &results);
+  GVariant *results = xdp_portal_open_file_finish(XDP_PORTAL(source_object), res, NULL);
 
-  if (response == 0) {
-    GVariant *uris_variant = g_variant_lookup_value(results, "uris", G_VARIANT_TYPE_STRING_ARRAY);
-    if (uris_variant) {
-      gsize n_uris;
-      const gchar **uris = g_variant_get_strv(uris_variant, &n_uris);
+  GVariant *uris_variant = g_variant_lookup_value(results, "uris", G_VARIANT_TYPE_STRING_ARRAY);
 
-      if (n_uris > 0) {
-        GFile *file = g_file_new_for_uri(uris[0]);
-        char *path = g_file_get_path(file);
-        data->selected_file = g_strdup(path);
-        g_free(path);
-        g_object_unref(file);
-      }
+  if (uris_variant) {
+    gsize n_uris;
+    const gchar **uris = g_variant_get_strv(uris_variant, &n_uris);
 
-      g_free(uris);
-      g_variant_unref(uris_variant);
+    if (n_uris > 0) {
+      GFile *file = g_file_new_for_uri(uris[0]);
+      char *path = g_file_get_path(file);
+      data->selected_file = g_strdup(path);
+      g_free(path);
+      g_object_unref(file);
     }
+
+    g_free(uris);
+    g_variant_unref(uris_variant);
   }
 
   g_variant_unref(results);
@@ -1114,16 +1106,20 @@ internal GSourceFuncs wayland_source_funcs = {
 internal String8
 os_graphical_pick_file(Arena *arena, String8 initial_path)
 {
-  GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
   struct file_chooser_data data = {0};
 
-  gchar *token = g_strdup_printf("filechooser%u", g_random_int());
-  gchar *handle = g_strdup_printf("/org/freedesktop/portal/desktop/request/%s/%s",
-                                  g_dbus_connection_get_unique_name(bus) + 1,
-                                  token);
-
- for (gchar *p = handle; *p; p++)
-    if (*p == '.') *p = '_';
+  xdp_portal_open_file(
+      os_lnx_gfx_state->portal,
+      NULL,
+      "Open a file",
+      NULL,
+      NULL,
+      NULL,
+      XDP_OPEN_FILE_FLAG_NONE,
+      NULL,
+      &on_file_chooser_response,
+      &data
+  );
 
   data.loop = g_main_loop_new(NULL, FALSE);
 
@@ -1138,51 +1134,10 @@ os_graphical_pick_file(Arena *arena, String8 initial_path)
   g_source_add_poll((GSource*)ws, &ws->pollfd);
   g_source_attach((GSource*)ws, NULL);
 
-  guint subscription_id = g_dbus_connection_signal_subscribe(
-      bus,
-      "org.freedesktop.portal.Desktop",
-      "org.freedesktop.portal.Request",
-      "Response",
-      handle,
-      NULL,
-      G_DBUS_SIGNAL_FLAGS_NONE,
-      on_file_chooser_response,
-      &data,
-      NULL
-  );
-
-  GVariantBuilder options_builder = G_VARIANT_BUILDER_INIT(G_VARIANT_TYPE_VARDICT);
-  g_variant_builder_add(&options_builder, "{sv}", "handle_token", g_variant_new_string(token));
-  g_variant_builder_add(&options_builder, "{sv}", "multiple", g_variant_new_boolean(FALSE));
-
-  if (initial_path.size > 0)
-    g_variant_builder_add(&options_builder, "{sv}", "current_folder", g_variant_new_bytestring((const char*)initial_path.str));
-
-  GVariant *params = g_variant_new("(ssa{sv})", "", "Choose a file", &options_builder);
-  GVariant *result = g_dbus_connection_call_sync(
-      bus,
-      "org.freedesktop.portal.Desktop",
-      "/org/freedesktop/portal/desktop",
-      "org.freedesktop.portal.FileChooser",
-      "OpenFile",
-      params,
-      NULL,
-      G_DBUS_CALL_FLAGS_NONE,
-      -1,
-      NULL,
-      NULL
-  );
-
-  g_variant_unref(result);
-
   g_main_loop_run(data.loop);
 
-  g_dbus_connection_signal_unsubscribe(bus, subscription_id);
   g_source_destroy((GSource *)ws);
   g_main_loop_unref(data.loop);
-  g_object_unref(bus);
-  g_free(token);
-  g_free(handle);
 
   if (!data.selected_file)
     return str8_zero();
@@ -1205,40 +1160,14 @@ os_graphical_pick_file(Arena *arena, String8 initial_path)
 internal void
 os_show_in_filesystem_ui(String8 path)
 {
-  GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
-
   char uri[4096] = {0};
   snprintf(uri, sizeof(uri) - 1, "%s%s", "file://", path.str);
 
-  GVariantBuilder uris_builder = G_VARIANT_BUILDER_INIT(G_VARIANT_TYPE_STRING_ARRAY);
-
-  g_variant_builder_add(&uris_builder, "s", uri);
-
-  GVariant *params = g_variant_new("(ass)", &uris_builder, "");
-
-  g_dbus_connection_call(
-      bus,
-      "org.freedesktop.FileManager1",
-      "/org/freedesktop/FileManager1",
-      "org.freedesktop.FileManager1",
-      "ShowItems",
-      params,
-      NULL,
-      G_DBUS_CALL_FLAGS_NONE,
-      -1,
-      NULL,
-      NULL,
-      NULL
-  );
+  xdp_portal_open_directory(os_lnx_gfx_state->portal, NULL, uri, XDP_OPEN_URI_FLAG_NONE, NULL, NULL, NULL);
 }
 
 internal void
 os_open_in_browser(String8 url)
 {
-  GError *error = NULL;
-
-  g_app_info_launch_default_for_uri((const char*)url.str, NULL, &error);
-
-  if (error)
-    g_error_free(error);
+  xdp_portal_open_uri(os_lnx_gfx_state->portal, NULL, (const char*)url.str, XDP_OPEN_URI_FLAG_NONE, NULL, NULL, NULL);
 }
