@@ -1060,6 +1060,9 @@ internal void on_file_chooser_response(GObject *source_object, GAsyncResult *res
 
   GVariant *results = xdp_portal_open_file_finish(XDP_PORTAL(source_object), res, NULL);
 
+  if (!results)
+    goto done;
+
   GVariant *uris_variant = g_variant_lookup_value(results, "uris", G_VARIANT_TYPE_STRING_ARRAY);
 
   if (uris_variant) {
@@ -1080,6 +1083,7 @@ internal void on_file_chooser_response(GObject *source_object, GAsyncResult *res
 
   g_variant_unref(results);
 
+done:
   if (g_main_loop_is_running(data->loop))
     g_main_loop_quit(data->loop);
 }
