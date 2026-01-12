@@ -36,6 +36,7 @@ pointer_handle_enter(void *data, struct wl_pointer *pointer,
   OS_LNX_Window *window = wl_surface_get_user_data(surface);
   os_lnx_gfx_state->focused_window = window;
   os_lnx_gfx_state->pointer_serial = serial;
+  os_lnx_gfx_state->last_input_serial = serial;
 }
 
 internal void
@@ -146,6 +147,7 @@ pointer_handle_motion(void *data, struct wl_pointer *wl_pointer,
 internal void
 pointer_handle_button(void *data, struct wl_pointer *wl_pointer,
                       uint32_t serial, uint32_t time, uint32_t button, uint32_t state) {
+  os_lnx_gfx_state->last_input_serial = serial;
   OS_LNX_Window *w = os_lnx_gfx_state->focused_window;
 
   uint32_t delta_time = time - w->last_click_time;
@@ -281,7 +283,7 @@ internal void keyboard_handle_key(void *data, struct wl_keyboard *keyboard,
                                 uint32_t serial, uint32_t time,
                                 uint32_t key, uint32_t state)
 {
-
+  os_lnx_gfx_state->last_input_serial = serial;
   OS_EventKind event_kind = state == WL_KEYBOARD_KEY_STATE_PRESSED ? OS_EventKind_Press : OS_EventKind_Release;
   OS_Event *event = os_lnx_push_event(event_kind, os_lnx_gfx_state->focused_window);
   OS_Key os_key = OS_Key_Null;
@@ -358,11 +360,13 @@ internal void keyboard_handle_key(void *data, struct wl_keyboard *keyboard,
 
     char buf[64] = {0};
     int n = xkb_keysym_to_utf8(keysym, buf, sizeof(buf));
+    printf("text event: %s\n", buf);
 
     for (int i = 0; i < n; ) {
       UnicodeDecode decode = utf8_decode((U8*)buf + i, n - i);
       if (decode.codepoint != 0 && (decode.codepoint >= 32 || decode.codepoint == '\t')) {
         OS_Event *text_event = os_lnx_push_event(OS_EventKind_Text, os_lnx_gfx_state->focused_window);
+        text_event->modifiers = event->modifiers;
         text_event->character = decode.codepoint;
       }
 
@@ -379,6 +383,7 @@ internal void keyboard_handle_modifiers(void *data, struct wl_keyboard *keyboard
                                       uint32_t mods_latched, uint32_t mods_locked,
                                       uint32_t group)
 {
+  os_lnx_gfx_state->last_input_serial = serial;
   xkb_state_update_mask(os_lnx_gfx_state->xkb_state,
                         mods_depressed, mods_latched,
                         mods_locked, 0, 0, group);
@@ -484,6 +489,8 @@ internal void registry_handle_global(void *data, struct wl_registry *registry,
     os_lnx_gfx_state->viewporter = wl_registry_bind(registry, name, &wp_viewporter_interface, 1);
   } else if (strcmp(interface, xdg_activation_v1_interface.name) == 0) {
     os_lnx_gfx_state->activation = wl_registry_bind(registry, name, &xdg_activation_v1_interface, 1);
+  } else if (strcmp(interface, wl_data_device_manager_interface.name) == 0) {
+    os_lnx_gfx_state->data_device_mgr = wl_registry_bind(registry, name, &wl_data_device_manager_interface, 3);
   }
 }
 
@@ -545,6 +552,7 @@ internal const struct xdg_toplevel_listener toplevel_listener = {
     toplevel_close
 };
 
+
 internal void xdg_surface_configure(void *data, struct xdg_surface *surface, uint32_t serial) {
     xdg_surface_ack_configure(surface, serial);
 }
@@ -560,6 +568,53 @@ internal void wm_ping(void *data, struct xdg_wm_base *xdg_wm_base,
 
 internal const struct xdg_wm_base_listener wm_base_listener = {
     wm_ping
+};
+
+internal void data_source_send(void *data,
+                 struct wl_data_source *source,
+                 const char *mime_type,
+                 int32_t fd) {
+  if (!os_lnx_gfx_state->clipboard_text) {
+    puts("data source send without text!!");
+    close(fd);
+    return;
+  }
+
+  puts("data source send");
+  write(fd, os_lnx_gfx_state->clipboard_text, os_lnx_gfx_state->clipboard_size);
+  close(fd);
+}
+
+internal void data_source_cancelled(void *data,
+                                  struct wl_data_source *source)
+{
+  wl_data_source_destroy(source);
+}
+
+internal const struct wl_data_source_listener data_source_listener = {
+    .send = data_source_send,
+    .cancelled = data_source_cancelled,
+    .dnd_drop_performed = NULL,
+    .dnd_finished = NULL,
+    .action = NULL,
+};
+
+internal void data_device_offer(void *data,
+                                struct wl_data_device *wl_data_device,
+                                struct wl_data_offer *id) {
+}
+
+internal void data_device_selection(
+    void *data,
+    struct wl_data_device *device,
+    struct wl_data_offer *offer)
+{
+  os_lnx_gfx_state->current_clipboard_offer = offer;
+}
+
+internal const struct wl_data_device_listener data_device_listener = {
+    .data_offer = data_device_offer,
+    .selection = data_device_selection,
 };
 
 internal void
@@ -580,6 +635,9 @@ os_gfx_init(void)
   os_lnx_gfx_state->cursor_surface = wl_compositor_create_surface(os_lnx_gfx_state->compositor);
   os_lnx_gfx_state->cursor_viewport = wp_viewporter_get_viewport(os_lnx_gfx_state->viewporter, os_lnx_gfx_state->cursor_surface);
   os_lnx_gfx_state->cursor_theme = wl_cursor_theme_load(NULL, 24, os_lnx_gfx_state->shm);
+
+  os_lnx_gfx_state->data_device = wl_data_device_manager_get_data_device(os_lnx_gfx_state->data_device_mgr, os_lnx_gfx_state->seat);
+  wl_data_device_add_listener(os_lnx_gfx_state->data_device, &data_device_listener, NULL);
 
   //- rjf: fill out gfx info
   os_lnx_gfx_state->gfx_info.double_click_time = 0.5f;
@@ -606,13 +664,52 @@ os_get_gfx_info(void)
 internal void
 os_set_clipboard_text(String8 string)
 {
-  
+  puts("setting clipboard data");
+
+  // FIXME: that looks really unsafe
+  os_lnx_gfx_state->clipboard_text = (const char*)string.str;
+  os_lnx_gfx_state->clipboard_size = string.size;
+
+  struct wl_data_source *source = wl_data_device_manager_create_data_source(os_lnx_gfx_state->data_device_mgr);
+  wl_data_source_add_listener(source, &data_source_listener, NULL);
+
+  wl_data_source_offer(source, "text/plain;charset=utf-8");
+  wl_data_source_offer(source, "text/plain");
+
+  wl_data_device_set_selection(os_lnx_gfx_state->data_device, source, os_lnx_gfx_state->last_input_serial);
 }
 
 internal String8
 os_get_clipboard_text(Arena *arena)
 {
+  if (!os_lnx_gfx_state->current_clipboard_offer)
+    return str8_zero();
+
+  int pipefd[2];
+  if (pipe(pipefd) < 0)
+    return str8_zero();
+
+  wl_data_offer_receive(os_lnx_gfx_state->current_clipboard_offer, "text/plain;charset=utf-8", pipefd[1]);
+  close(pipefd[1]);
+
+  wl_display_flush(os_lnx_gfx_state->display);
+
   String8 result = {0};
+  char buf[BUFSIZ];
+  size_t pos = 0;
+
+  for (;;) {
+    ssize_t nread = read(pipefd[0], buf, sizeof(buf));
+
+    if (nread > 0) {
+      String8 chunk = str8((U8*)buf + pos, nread);
+      result = push_cstr(arena, chunk);
+    } else {
+      break;
+    }
+  }
+
+  close(pipefd[0]);
   return result;
 }
 

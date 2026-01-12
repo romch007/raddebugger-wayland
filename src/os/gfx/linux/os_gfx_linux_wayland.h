@@ -68,30 +68,46 @@ struct OS_LNX_GfxState
   struct wl_display *display;
   struct wl_registry *registry;
   struct wl_compositor *compositor;
+  struct wl_shm *shm;
+
   struct xdg_wm_base *wm_base;
+  struct xdg_activation_v1 *activation;
+  char *activation_token;
+
   struct wl_seat *seat;
+  uint32_t last_input_serial;
+
   struct wl_pointer *pointer;
   uint32_t pointer_serial;
-  struct wl_surface *cursor_surface;
-  struct wl_cursor_theme *cursor_theme;
-  struct wp_viewport *cursor_viewport;
+
   struct wl_keyboard *keyboard;
   struct xkb_context *xkb_ctx;
   struct xkb_keymap *xkb_keymap;
   struct xkb_state *xkb_state;
-  struct wl_shm *shm;
-  struct wp_fractional_scale_manager_v1 *fractional_scale_manager;
-  struct wp_viewporter *viewporter;
-  XdpPortal *portal;
-  struct xdg_activation_v1 *activation;
-  char *activation_token;
-  OS_LNX_Window *focused_window;
+
+  struct wl_cursor_theme *cursor_theme;
+  struct wl_surface *cursor_surface;
+  struct wp_viewport *cursor_viewport;
   B32 force_border_cursor;
+  OS_Cursor last_set_cursor;
+
+  struct wp_viewporter *viewporter;
+  struct wp_fractional_scale_manager_v1 *fractional_scale_manager;
+
+  struct wl_data_device_manager *data_device_mgr;
+  struct wl_data_device *data_device;
+  struct wl_data_offer *current_clipboard_offer;
+  const char *clipboard_text;
+  size_t clipboard_size;
+
+  XdpPortal *portal;
+
+  OS_LNX_Window *focused_window;
 
   OS_LNX_Window *first_window;
   OS_LNX_Window *last_window;
   OS_LNX_Window *free_window;
-  OS_Cursor last_set_cursor;
+
   OS_GfxInfo gfx_info;
 };
 

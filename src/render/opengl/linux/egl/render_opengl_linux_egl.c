@@ -75,6 +75,7 @@ r_ogl_os_init(CmdLine *cmdln)
   }
   
   eglMakeCurrent(r_ogl_lnx_state->display, 0, 0, r_ogl_lnx_state->context);
+  eglSwapInterval(r_ogl_lnx_state->display, 0);
   glDrawBuffer(GL_BACK);
 }
 
